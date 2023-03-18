@@ -199,7 +199,7 @@ func (mp *messageProcessor) assembleMessage(
 	mp.trackMessage(msg.tracker(assembled), i)
 	wg.Done()
 	if err != nil {
-		dst.log.Error(fmt.Sprintf("Error assembling %s message", msg.msgType()), zap.Object("msg", msg))
+		dst.log.Error(fmt.Sprintf("Error assembling %s message", msg.msgType()), zap.Object("msg", msg), zap.Error(err))
 		return
 	}
 	dst.log.Debug(fmt.Sprintf("Assembled %s message", msg.msgType()), zap.Object("msg", msg))
@@ -450,7 +450,7 @@ func (mp *messageProcessor) sendSingleMessage(
 			mp.log.Debug(fmt.Sprintf("Redundant %s message", msgType), errFields...)
 			return
 		}
-		mp.log.Error(fmt.Sprintf("Error broadcasting %s message", msgType), errFields...)
+		mp.log.Error(fmt.Sprintf("'Error broadcasting %s message", msgType), errFields...)
 		return
 	}
 

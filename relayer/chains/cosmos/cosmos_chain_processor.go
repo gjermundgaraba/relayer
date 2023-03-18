@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strconv"
 	"time"
 
 	"github.com/avast/retry-go/v4"
@@ -303,6 +304,31 @@ func (ccp *CosmosChainProcessor) initializeChannelState(ctx context.Context) err
 	return nil
 }
 
+var packetWhitelist = map[string]map[string]map[string]bool{
+	"ibc_nft_transfer": {
+		"c2VuZGVy": {
+			"aWFhMXlweW5lamFmanc2dTJjdWNxcDl5am5haHhqdDN2a2w2bXMyZnVt":         true,
+			"dXB0aWNrMWZla3ZheDBkMDY1dm5sOXh1dWs4dmw3OWc3eDdmcjhtOGQ4NnRr":     true,
+			"b21uaWZsaXgxeXB5bmVqYWZqdzZ1MmN1Y3FwOXlqbmFoeGp0M3ZrbDZudm1wZjU=": true,
+		},
+		"sender": {
+			"iaa1ypynejafjw6u2cucqp9yjnahxjt3vkl6ms2fum":      true,
+			"uptick1fekvax0d065vnl9xuuk8vl79g7x7fr8m8d86tk":   true,
+			"omniflix1ypynejafjw6u2cucqp9yjnahxjt3vkl6nvmpf5": true,
+		},
+	},
+	"wasm": {
+		"c2VuZGVy": {
+			"c3RhcnMxeXB5bmVqYWZqdzZ1MmN1Y3FwOXlqbmFoeGp0M3ZrbDY2d2E5NG0=": true,
+			"anVubzF5cHluZWphZmp3NnUyY3VjcXA5eWpuYWh4anQzdmtsNmNxZnJlaw==": true,
+		},
+		"sender": {
+			"stars1ypynejafjw6u2cucqp9yjnahxjt3vkl66wa94m": true,
+			"juno1ypynejafjw6u2cucqp9yjnahxjt3vkl6cqfrek":  true,
+		},
+	},
+}
+
 func (ccp *CosmosChainProcessor) queryCycle(ctx context.Context, persistence *queryCyclePersistence) error {
 	status, err := ccp.nodeStatusWithRetry(ctx)
 	if err != nil {
@@ -398,6 +424,10 @@ func (ccp *CosmosChainProcessor) queryCycle(ctx context.Context, persistence *qu
 			base64Encoded,
 		)
 		for _, m := range blockMsgs {
+			// Check if m.info is *packetInfo type
+			if _, ok := m.info.(*packetInfo); ok {
+				ccp.log.Warn("WTF, ARE PACKET INFO SUPPOSED TO BE IN BLOCK EVENTS???")
+			}
 			ccp.handleMessage(ctx, m, ibcMessagesCache)
 		}
 
@@ -409,7 +439,43 @@ func (ccp *CosmosChainProcessor) queryCycle(ctx context.Context, persistence *qu
 			messages := ibcMessagesFromEvents(ccp.log, tx.Events, chainID, heightUint64, base64Encoded)
 
 			for _, m := range messages {
-				ccp.handleMessage(ctx, m, ibcMessagesCache)
+				if packet, isPacket := m.info.(*packetInfo); isPacket {
+					// Check if packet is whitelisted
+					wlFound := false
+					for _, e := range tx.Events {
+						if wlFound {
+							break
+						}
+
+						if wlEvent, ok := packetWhitelist[e.Type]; ok {
+							for _, attr := range e.Attributes {
+								if wlFound {
+									break
+								}
+
+								if wlAttribute, ok := wlEvent[attr.Key]; ok {
+									if _, ok := wlAttribute[attr.Value]; ok {
+										ccp.log.Info("Found whitelisted packet",
+											zap.String("type", e.Type),
+											zap.String("key", attr.Key),
+											zap.String("value", attr.Value),
+										)
+										ccp.handleMessage(ctx, m, ibcMessagesCache)
+										wlFound = true
+									}
+								}
+							}
+						}
+					}
+
+					if !wlFound {
+						ccp.log.Debug("Packet not whitelisted (cycle)",
+							zap.String("sequence", strconv.FormatUint(packet.Sequence, 10)),
+						)
+					}
+				} else {
+					ccp.handleMessage(ctx, m, ibcMessagesCache)
+				}
 			}
 		}
 

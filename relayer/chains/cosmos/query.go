@@ -59,7 +59,50 @@ func (cc *CosmosProvider) queryIBCMessages(ctx context.Context, log *zap.Logger,
 	var ibcMsgs []ibcMessage
 	chainID := cc.ChainId()
 	for _, tx := range res.Txs {
-		ibcMsgs = append(ibcMsgs, ibcMessagesFromEvents(log, tx.TxResult.Events, chainID, 0, base64Encoded)...)
+		parsedIbcMessages := ibcMessagesFromEvents(log, tx.TxResult.Events, chainID, 0, base64Encoded)
+		var acceptedIbcMessages []ibcMessage
+		for _, msg := range parsedIbcMessages {
+			if packet, isPacket := msg.info.(*packetInfo); isPacket {
+				// Check if packet is whitelisted
+				wlFound := false
+				for _, e := range tx.TxResult.Events {
+					if wlFound {
+						break
+					}
+
+					if wlEvent, ok := packetWhitelist[e.Type]; ok {
+						for _, attr := range e.Attributes {
+							if wlFound {
+								break
+							}
+
+							if wlAttribute, ok := wlEvent[attr.Key]; ok {
+								if _, ok := wlAttribute[attr.Value]; ok {
+									cc.log.Info("Found whitelisted packet",
+										zap.String("type", e.Type),
+										zap.String("key", attr.Key),
+										zap.String("value", attr.Value),
+									)
+									acceptedIbcMessages = append(acceptedIbcMessages, msg)
+									wlFound = true
+								}
+							}
+						}
+					}
+				}
+
+				if !wlFound {
+					cc.log.Debug("Packet not whitelisted (from query)",
+						zap.String("sequence", strconv.FormatUint(packet.Sequence, 10)),
+					)
+				}
+			} else {
+				acceptedIbcMessages = append(acceptedIbcMessages, msg)
+			}
+
+		}
+
+		ibcMsgs = append(ibcMsgs, acceptedIbcMessages...)
 	}
 
 	return ibcMsgs, nil
