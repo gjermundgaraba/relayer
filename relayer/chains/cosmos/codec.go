@@ -32,6 +32,7 @@ import (
 	cosmosmodule "github.com/cosmos/relayer/v2/relayer/chains/cosmos/module"
 	"github.com/cosmos/relayer/v2/relayer/chains/cosmos/stride"
 	ethermintcodecs "github.com/cosmos/relayer/v2/relayer/codecs/ethermint"
+	hubcodecs "github.com/cosmos/relayer/v2/relayer/codecs/hub"
 	injectivecodecs "github.com/cosmos/relayer/v2/relayer/codecs/injective"
 )
 
@@ -88,6 +89,9 @@ func MakeCodec(moduleBasics []module.AppModuleBasic, extraCodecs []string, accBe
 			encodingConfig.Amino.RegisterConcrete(&injectivecodecs.PrivKey{}, injectivecodecs.PrivKeyName, nil)
 		}
 	}
+
+	hubcodecs.RegisterInterfaces(encodingConfig.InterfaceRegistry)
+	encodingConfig.Amino.RegisterConcrete(&hubcodecs.ClientState{}, "hub/pessimist/ClientState", nil) // ??
 
 	return encodingConfig
 }

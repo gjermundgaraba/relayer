@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -99,8 +100,24 @@ func (mp *messageProcessor) processMessages(
 ) error {
 	var needsClientUpdate bool
 
+	mp.log.Debug("Processing messages", zap.String("src", src.info.ChainID), zap.String("dst", dst.info.ChainID), zap.Array("messages", zapcore.ArrayMarshalerFunc(func(enc zapcore.ArrayEncoder) error {
+		for _, m := range messages.channelMessages {
+			enc.AppendString(m.msgType())
+		}
+		for _, m := range messages.connectionMessages {
+			enc.AppendString(m.msgType())
+		}
+		for _, m := range messages.clientICQMessages {
+			enc.AppendString(m.msgType())
+		}
+		for _, m := range messages.packetMessages {
+			enc.AppendString(m.msgType())
+		}
+		return nil
+	})))
+
 	// Localhost IBC does not permit client updates
-	if !isLocalhostClient(src.clientState.ClientID, dst.clientState.ClientID) {
+	if !isLocalhostClient(src.clientState.ClientID, dst.clientState.ClientID) && !strings.Contains(dst.clientState.ClientID, "69-pessimist") {
 		var err error
 		needsClientUpdate, err = mp.shouldUpdateClientNow(ctx, src, dst)
 		if err != nil {
@@ -110,6 +127,8 @@ func (mp *messageProcessor) processMessages(
 		if err := mp.assembleMsgUpdateClient(ctx, src, dst); err != nil {
 			return err
 		}
+	} else {
+		mp.log.Debug("Localhost or pessimist client, skipping client update")
 	}
 
 	mp.assembleMessages(ctx, messages, src, dst)
@@ -383,6 +402,11 @@ func (mp *messageProcessor) sendClientUpdate(
 	dst.lastClientUpdateHeight = dst.latestBlock.Height
 	dst.lastClientUpdateHeightMu.Unlock()
 
+	if mp.msgUpdateClient == nil {
+		dst.log.Error("mp.msgUpdateClient == nil: No client update message to send?", zap.String("path_name", src.info.PathName), zap.String("to_chain_id", dst.info.ChainID))
+		return
+	}
+
 	msgs := []provider.RelayerMessage{mp.msgUpdateClient}
 
 	if err := dst.chainProvider.SendMessagesToMempool(broadcastCtx, msgs, mp.memo, ctx, nil); err != nil {
@@ -494,6 +518,13 @@ func (mp *messageProcessor) sendBatchMessages(
 			zap.String("dst_chain_id", dst.info.ChainID),
 			zap.String("src_client_id", src.info.ClientID),
 			zap.String("dst_client_id", dst.info.ClientID),
+			zap.String("to_chain_id", dst.chainProvider.ChainId()),
+			zap.Array("msgs", zapcore.ArrayMarshalerFunc(func(enc zapcore.ArrayEncoder) error {
+				for _, t := range batch {
+					enc.AppendString(t.msgType())
+				}
+				return nil
+			})),
 			zap.Error(err),
 		}
 

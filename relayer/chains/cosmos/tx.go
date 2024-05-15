@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	hubcodecs "github.com/cosmos/relayer/v2/relayer/codecs/hub"
 	"math"
 	"math/big"
 	"math/rand"
@@ -1560,6 +1561,26 @@ func (cc *CosmosProvider) queryTMClientState(ctx context.Context, srch int64, sr
 	if !ok {
 		return &tmclient.ClientState{},
 			fmt.Errorf("error when casting exported clientstate to tendermint type, got(%T)", clientStateExported)
+	}
+
+	return clientState, nil
+}
+
+func (cc *CosmosProvider) queryPessimisticClientState(ctx context.Context, srch int64, srcClientId string) (*hubcodecs.ClientState, error) {
+	clientStateRes, err := cc.QueryClientStateResponse(ctx, srch, srcClientId)
+	if err != nil {
+		return &hubcodecs.ClientState{}, err
+	}
+
+	clientStateExported, err := clienttypes.UnpackClientState(clientStateRes.ClientState)
+	if err != nil {
+		return &hubcodecs.ClientState{}, err
+	}
+
+	clientState, ok := clientStateExported.(*hubcodecs.ClientState)
+	if !ok {
+		return &hubcodecs.ClientState{},
+			fmt.Errorf("error when casting exported clientstate to hub pessimist type, got(%T)", clientStateExported)
 	}
 
 	return clientState, nil

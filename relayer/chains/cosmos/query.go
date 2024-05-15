@@ -410,10 +410,14 @@ func (cc *CosmosProvider) QueryTendermintProof(ctx context.Context, height int64
 		Prove:  true,
 	}
 
+	cc.log.Debug("QueryTendermintProof", zap.String("chain-id", cc.ChainId()), zap.String("path", req.Path), zap.Int64("height", req.Height), zap.String("key", string(key)))
+
 	res, err := cc.QueryABCI(ctx, req)
 	if err != nil {
 		return nil, nil, clienttypes.Height{}, err
 	}
+
+	cc.log.Debug("QueryABCI Response", zap.Any("response", res), zap.String("chain-id", cc.ChainId()), zap.Int64("qheight", height), zap.String("qkey", string(key)))
 
 	merkleProof, err := commitmenttypes.ConvertProofs(res.ProofOps)
 	if err != nil {
@@ -428,6 +432,8 @@ func (cc *CosmosProvider) QueryTendermintProof(ctx context.Context, height int64
 	}
 
 	revision := clienttypes.ParseChainID(cc.PCfg.ChainID)
+
+	cc.log.Debug("End of query tendermint proof", zap.String("chain-id", cc.ChainId()), zap.Int64("qheight", height), zap.String("qkey", string(key)), zap.Int("res.Value len", len(res.Value)), zap.Int("proofBz len", len(proofBz)), zap.Int64("res.Height", res.Height), zap.Uint64("revision", revision))
 	return res.Value, proofBz, clienttypes.NewHeight(revision, uint64(res.Height)+1), nil
 }
 
@@ -786,6 +792,9 @@ func (cc *CosmosProvider) GenerateConnHandshakeProof(ctx context.Context, height
 	eg.Go(func() error {
 		var err error
 		consensusStateRes, err = cc.QueryClientConsensusState(ctx, height, clientId, clientState.GetLatestHeight())
+		if err != nil {
+			cc.log.Error("error querying consensus state tt", zap.Error(err), zap.String("chain", cc.PCfg.ChainID), zap.String("client-id", clientId))
+		}
 		return err
 	})
 	eg.Go(func() error {
@@ -795,6 +804,7 @@ func (cc *CosmosProvider) GenerateConnHandshakeProof(ctx context.Context, height
 	})
 
 	if err := eg.Wait(); err != nil {
+		cc.log.Error("error generating consensus state tt", zap.Error(err), zap.String("chain", cc.PCfg.ChainID), zap.String("client-id", clientId))
 		return nil, nil, nil, nil, clienttypes.Height{}, err
 	}
 

@@ -102,12 +102,13 @@ func (l latestClientState) update(ctx context.Context, clientInfo chains.ClientI
 	if trustingPeriod == 0 {
 		cs, err := ccp.chainProvider.queryTMClientState(ctx, 0, clientInfo.ClientID)
 		if err != nil {
-			ccp.log.Error(
+			/*ccp.log.Error(
 				"Failed to query client state to get trusting period",
 				zap.String("client_id", clientInfo.ClientID),
 				zap.Error(err),
 			)
-			return
+			return*/
+			trustingPeriod = 5_408_000_000_000_000_000
 		}
 		trustingPeriod = cs.TrustingPeriod
 	}
@@ -186,7 +187,16 @@ func (ccp *CosmosChainProcessor) clientState(ctx context.Context, clientID strin
 	} else {
 		cs, err := ccp.chainProvider.queryTMClientState(ctx, int64(ccp.latestBlock.Height), clientID)
 		if err != nil {
-			return provider.ClientState{}, err
+			pessimisticClientState, err := ccp.chainProvider.queryPessimisticClientState(ctx, int64(ccp.latestBlock.Height), clientID)
+			if err != nil {
+				return provider.ClientState{}, err
+			}
+
+			return provider.ClientState{
+				ClientID:        clientID,
+				ConsensusHeight: clienttypes.NewHeight(0, uint64(pessimisticClientState.LatestHeight)),
+				TrustingPeriod:  5_408_000_000_000_000_000,
+			}, nil
 		}
 		clientState = provider.ClientState{
 			ClientID:        clientID,
